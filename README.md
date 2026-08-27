@@ -21,5 +21,16 @@ MCP SERVER
 > 
 > 서빙 확인
 >> curl http://localhost:11434/api/tags
+> 
+> 중지
+>> brew services stop ollama
+> 
+> 실행
+>> brew services start ollama
+  
 
-6. ㅇㅇㅇ
+6. 테스트 방법
+> mcp server local에서 열기
+>> uvicorn app.main:app --host 0.0.0.0 --port 8443
+> 
+이후 테스트 폴더 안에 테스트 코드 만들어놓고 실행
