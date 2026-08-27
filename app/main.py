@@ -1,3 +1,5 @@
+from pathlib import Path
+
 # 표준 라이브러리
 from datetime import datetime
 
@@ -9,33 +11,37 @@ from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 # 기존 서비스 import
-from modules.bdp_project.bdp_service import (
-    get_current_datetime,
-    predict_hs_code,
+# from modules.bdp_project.bdp_service import (
+#     get_current_datetime,
+#     predict_hs_code,
+# )
+#
+# from modules.customs_administration.law_service import (
+#     search_law_by_hierarchy,
+#     search_laws_by_topic,
+# )
+#
+# from modules.artifact.artifact_service import (
+#     search_artifacts_by_project,
+#     search_artifacts_comprehensive,
+#     search_artifacts_by_keywords,
+#     search_artifacts_by_page_range,
+#     get_document_by_filename,
+#     list_available_projects,
+# )
+#
+# from modules.database.meta_service import (
+#     search_table_metadata,
+#     get_table_relationships,
+#     get_semantic_code_mapping,
+# )
+
+# from modules.database.database_service import query_database
+
+from app.modules.code_setup.investigation_service import (
+    list_files,
+    get_project_tree,
 )
-
-from modules.customs_administration.law_service import (
-    search_law_by_hierarchy,
-    search_laws_by_topic,
-)
-
-from modules.artifact.artifact_service import (
-    search_artifacts_by_project,
-    search_artifacts_comprehensive,
-    search_artifacts_by_keywords,
-    search_artifacts_by_page_range,
-    get_document_by_filename,
-    list_available_projects,
-)
-
-from modules.database.meta_service import (
-    search_table_metadata,
-    get_table_relationships,
-    get_semantic_code_mapping,
-)
-
-from modules.database.database_service import query_database
-
 
 # ---------------------------------------------------------
 # MCP transport security
@@ -79,45 +85,50 @@ mcp = MCPServer(
 # 기본 Tool 등록
 # ---------------------------------------------------------
 
-mcp.tool()(get_current_datetime)
-mcp.tool()(predict_hs_code)
-
+# mcp.tool()(get_current_datetime)
+# mcp.tool()(predict_hs_code)
+#
+#
+# # ---------------------------------------------------------
+# # 법령 Tool 등록
+# # ---------------------------------------------------------
+#
+# mcp.tool()(search_law_by_hierarchy)
+# mcp.tool()(search_laws_by_topic)
+#
+#
+# # ---------------------------------------------------------
+# # 산출물 Tool 등록
+# # ---------------------------------------------------------
+#
+# mcp.tool()(search_artifacts_by_project)
+# mcp.tool()(search_artifacts_comprehensive)
+# mcp.tool()(search_artifacts_by_keywords)
+# mcp.tool()(search_artifacts_by_page_range)
+# mcp.tool()(get_document_by_filename)
+# mcp.tool()(list_available_projects)
+#
+#
+# # ---------------------------------------------------------
+# # 메타 / NULL Tool 등록
+# # ---------------------------------------------------------
+#
+# mcp.tool()(search_table_metadata)
+# mcp.tool()(get_table_relationships)
+# mcp.tool()(get_semantic_code_mapping)
+#
+#
+# # ---------------------------------------------------------
+# # DB 조회 Tool 등록
+# # ---------------------------------------------------------
+#
+# mcp.tool()(query_database)
 
 # ---------------------------------------------------------
-# 법령 Tool 등록
+# 파일 조회 Tool 등록
 # ---------------------------------------------------------
-
-mcp.tool()(search_law_by_hierarchy)
-mcp.tool()(search_laws_by_topic)
-
-
-# ---------------------------------------------------------
-# 산출물 Tool 등록
-# ---------------------------------------------------------
-
-mcp.tool()(search_artifacts_by_project)
-mcp.tool()(search_artifacts_comprehensive)
-mcp.tool()(search_artifacts_by_keywords)
-mcp.tool()(search_artifacts_by_page_range)
-mcp.tool()(get_document_by_filename)
-mcp.tool()(list_available_projects)
-
-
-# ---------------------------------------------------------
-# 메타 / NULL Tool 등록
-# ---------------------------------------------------------
-
-mcp.tool()(search_table_metadata)
-mcp.tool()(get_table_relationships)
-mcp.tool()(get_semantic_code_mapping)
-
-
-# ---------------------------------------------------------
-# DB 조회 Tool 등록
-# ---------------------------------------------------------
-
-mcp.tool()(query_database)
-
+mcp.tool()(list_files)
+mcp.tool()(get_project_tree)
 
 # ---------------------------------------------------------
 # Streamable HTTP ASGI App
