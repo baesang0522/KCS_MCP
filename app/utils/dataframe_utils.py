@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -145,3 +147,93 @@ def load_table_dataframe(
         path=target,
         sheet_name=sheet_name,
     )
+
+
+def select_dataframe_columns(
+    dataframe: pd.DataFrame,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    DataFrame에서 요청한 컬럼을 입력 순서대로 선택한다.
+
+    Args:
+        dataframe:
+            컬럼을 선택할 DataFrame.
+
+        columns:
+            선택할 컬럼 이름. 생략하면 전체 컬럼을 선택한다.
+
+    Returns:
+        컬럼 이름을 문자열로 정규화한 DataFrame을 반환한다.
+
+    Raises:
+        ValueError:
+            columns가 비었거나 중복·존재하지 않는 이름을 포함할 때 발생한다.
+    """
+    column_mapping: dict[str, Any] = {}
+
+    for column_name in dataframe.columns:
+        normalized_name = str(column_name)
+
+        if normalized_name in column_mapping:
+            raise ValueError(
+                "문자열로 변환했을 때 중복되는 컬럼 이름이 있습니다: "
+                f"{normalized_name}"
+            )
+
+        column_mapping[normalized_name] = column_name
+
+    if columns is None:
+        selected_names = list(column_mapping)
+    else:
+        if not columns:
+            raise ValueError(
+                "columns는 하나 이상의 컬럼 이름을 포함해야 합니다."
+            )
+
+        if len(columns) != len(set(columns)):
+            raise ValueError(
+                "columns에는 중복된 컬럼 이름을 지정할 수 없습니다."
+            )
+
+        missing_columns = [
+            column_name
+            for column_name in columns
+            if column_name not in column_mapping
+        ]
+
+        if missing_columns:
+            raise ValueError(
+                "존재하지 않는 컬럼입니다: "
+                f"{', '.join(missing_columns)}"
+            )
+
+        selected_names = columns
+
+    selected = dataframe.loc[
+        :,
+        [
+            column_mapping[column_name]
+            for column_name in selected_names
+        ],
+    ].copy()
+    selected.columns = selected_names
+
+    return selected
+
+
+def dataframe_to_records(
+    dataframe: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    """
+    DataFrame 행을 MCP JSON 응답에 안전한 dictionary 목록으로 변환한다.
+
+    datetime과 결측값 등 pandas 전용 값을 JSON 호환 값으로 변환한다.
+    """
+    serialized = dataframe.to_json(
+        orient="records",
+        date_format="iso",
+        force_ascii=False,
+    )
+
+    return json.loads(serialized)

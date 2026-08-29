@@ -99,6 +99,40 @@ async def call_inspect_table(
     print_tool_result(result)
 
 
+async def call_preview_rows(
+    session: ClientSession,
+    path: str,
+    columns: list[str] | None = None,
+    n: int = 20,
+    mode: str = "head",
+    sheet_name: str | None = None,
+) -> None:
+    arguments = {
+        "workspace_root": str(WORKSPACE_ROOT),
+        "path": path,
+        "n": n,
+        "mode": mode,
+    }
+
+    if columns is not None:
+        arguments["columns"] = columns
+
+    if sheet_name is not None:
+        arguments["sheet_name"] = sheet_name
+
+    print(
+        f"\n\n>>> preview_rows 테스트: "
+        f"{path} ({mode})"
+    )
+
+    result = await session.call_tool(
+        "preview_rows",
+        arguments=arguments,
+    )
+
+    print_tool_result(result)
+
+
 async def main():
     print(f"MCP Server     : {MCP_URL}")
     print(f"Workspace Root : {WORKSPACE_ROOT}")
@@ -139,6 +173,21 @@ async def main():
                     )
                 )
 
+                preview_tool = next(
+                    tool
+                    for tool in tools_result.tools
+                    if tool.name == "preview_rows"
+                )
+
+                print("\n========== preview_rows ==========")
+                print(
+                    json.dumps(
+                        preview_tool.input_schema,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+
                 await call_inspect_table(
                     session,
                     paths["parquet"],
@@ -154,6 +203,28 @@ async def main():
                 await call_inspect_table(
                     session,
                     paths["xlsx"],
+                    sheet_name="Ids",
+                )
+
+                await call_preview_rows(
+                    session,
+                    paths["parquet"],
+                    n=2,
+                    mode="head",
+                )
+                await call_preview_rows(
+                    session,
+                    paths["csv"],
+                    columns=["id", "name"],
+                    n=2,
+                    mode="tail",
+                )
+                await call_preview_rows(
+                    session,
+                    paths["xlsx"],
+                    columns=["id"],
+                    n=2,
+                    mode="random",
                     sheet_name="Ids",
                 )
 

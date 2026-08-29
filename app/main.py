@@ -44,6 +44,7 @@ from app.modules.code_setup.investigation_service import (
 )
 from app.modules.data_analysis.analysis_service import (
     inspect_table,
+    preview_rows,
 )
 
 # ---------------------------------------------------------
@@ -137,6 +138,7 @@ mcp.tool()(get_project_tree)
 # 데이터 분석 Tool 등록
 # ---------------------------------------------------------
 mcp.tool()(inspect_table)
+mcp.tool()(preview_rows)
 
 # ---------------------------------------------------------
 # Streamable HTTP ASGI App
