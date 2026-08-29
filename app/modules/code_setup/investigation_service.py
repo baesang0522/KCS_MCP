@@ -1,6 +1,4 @@
 # 보안상 agent가 아닌 harness가 workspace_root를 제공함
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 
