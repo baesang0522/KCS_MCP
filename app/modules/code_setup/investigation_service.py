@@ -371,6 +371,243 @@ def list_files(
     }
 
 
+def read_file(
+    workspace_root: str,
+    path: str,
+    start_line: int = 1,
+    end_line: int | None = None,
+    max_lines: int = 500,
+    max_chars: int = 20000,
+) -> dict[str, Any]:
+    """
+    UTF-8 텍스트 파일의 지정한 줄 범위를 제한된 크기로 읽는다.
+
+    요청 범위와 continuation 판단에 필요한 다음 한 줄까지만 읽는다.
+    content에는 줄 번호를 추가하지 않는다. max_lines와 max_chars 중
+    먼저 도달한 제한에서 완전한 줄 단위로 결과를 자른다.
+
+    Args:
+        workspace_root:
+            파일 접근을 허용할 작업공간 루트 경로.
+
+            예:
+                "/workspace/project"
+
+        path:
+            workspace_root 기준 파일 경로. 절대 경로나 workspace 밖을
+            가리키는 `..`, 심볼릭 링크는 허용하지 않는다.
+
+            예:
+                "src/main.py"
+                "README.md"
+
+        start_line:
+            읽기 시작할 1-based 줄 번호. 기본값은 1이다.
+
+            예:
+                1
+                501
+
+        end_line:
+            읽기를 끝낼 1-based 줄 번호. 해당 줄을 포함한다.
+            생략하면 파일 끝까지를 요청 범위로 사용한다.
+
+            예:
+                100
+                None
+
+        max_lines:
+            content에 포함할 최대 줄 수. 기본값은 500이다.
+
+            예:
+                200
+
+        max_chars:
+            content에 포함할 최대 문자 수. 기본값은 20000이다.
+            다음 줄 전체를 추가했을 때 제한을 넘으면 해당 줄은 반환하지
+            않고 next_start_line으로 넘긴다.
+
+            예:
+                10000
+
+    Returns:
+        다음 형식의 dictionary를 반환한다.
+
+        {
+            "path": "src/main.py",
+            "content": "...",
+            "start_line": 1,
+            "end_line": 420,
+            "file_size": 823451,
+            "truncated": True,
+            "next_start_line": 421
+        }
+
+        end_line은 content에 포함된 마지막 줄 번호다. 반환할 줄이 없으면
+        None이다. file_size는 파일의 byte 크기다. next_start_line은
+        truncated가 True일 때만 포함한다.
+
+    Raises:
+        FileNotFoundError:
+            workspace_root 또는 path가 존재하지 않을 때 발생한다.
+
+        NotADirectoryError:
+            workspace_root가 디렉토리가 아닐 때 발생한다.
+
+        IsADirectoryError:
+            path가 일반 파일이 아닌 디렉토리일 때 발생한다.
+
+        PermissionError:
+            workspace 밖에 접근하거나 파일 읽기 권한이 없을 때 발생한다.
+
+        ValueError:
+            줄 범위나 제한값이 잘못됐거나, .ipynb·binary·UTF-8이 아닌
+            파일을 요청할 때 발생한다. 단일 줄이 max_chars보다 길 때도
+            내용 유실을 방지하기 위해 발생한다.
+
+    Agent 사용 지침:
+        - 큰 파일은 start_line과 end_line으로 필요한 범위만 요청해라.
+        - truncated가 True면 next_start_line부터 이어서 읽어라.
+        - content에 줄 번호가 없으므로 반환된 범위 정보와 함께 해석해라.
+    """
+    if start_line < 1:
+        raise ValueError(
+            "start_line은 1 이상이어야 합니다."
+        )
+
+    if end_line is not None and end_line < start_line:
+        raise ValueError(
+            "end_line은 start_line 이상이어야 합니다."
+        )
+
+    if max_lines < 1:
+        raise ValueError(
+            "max_lines는 1 이상이어야 합니다."
+        )
+
+    if max_chars < 1:
+        raise ValueError(
+            "max_chars는 1 이상이어야 합니다."
+        )
+
+    root, target = _resolve_path(
+        workspace_root=workspace_root,
+        path=path,
+    )
+
+    if not target.is_file():
+        raise IsADirectoryError(
+            f"파일이 아닙니다: {path}"
+        )
+
+    if target.suffix.lower() == ".ipynb":
+        raise ValueError(
+            ".ipynb 파일은 read_file로 읽을 수 없습니다."
+        )
+
+    try:
+        file_size = target.stat().st_size
+    except PermissionError as exc:
+        raise PermissionError(
+            f"파일 정보를 읽을 권한이 없습니다: {path}"
+        ) from exc
+
+    content_parts: list[str] = []
+    content_char_count = 0
+    returned_line_count = 0
+    returned_end_line: int | None = None
+    truncated = False
+    next_start_line: int | None = None
+
+    try:
+        with target.open(
+            mode="rb",
+        ) as file:
+            for line_number, raw_line in enumerate(
+                file,
+                start=1,
+            ):
+                line = raw_line.decode(
+                    "utf-8",
+                    errors="strict",
+                )
+
+                if any(
+                    (
+                        ord(character) < 32
+                        and character not in "\t\n\r\f"
+                    )
+                    or ord(character) == 127
+                    for character in line
+                ):
+                    raise ValueError(
+                        f"binary 파일은 읽을 수 없습니다: {path}"
+                    )
+
+                if line_number < start_line:
+                    continue
+
+                if (
+                    end_line is not None
+                    and line_number > end_line
+                ):
+                    break
+
+                if returned_line_count >= max_lines:
+                    truncated = True
+                    next_start_line = line_number
+                    break
+
+                if len(line) > max_chars:
+                    raise ValueError(
+                        "단일 줄의 문자 수가 max_chars를 초과합니다: "
+                        f"line={line_number}, "
+                        f"line_chars={len(line)}, "
+                        f"max_chars={max_chars}"
+                    )
+
+                if (
+                    content_char_count + len(line)
+                    > max_chars
+                ):
+                    truncated = True
+                    next_start_line = line_number
+                    break
+
+                content_parts.append(line)
+                content_char_count += len(line)
+                returned_line_count += 1
+                returned_end_line = line_number
+
+                if (
+                    end_line is not None
+                    and line_number == end_line
+                ):
+                    break
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"UTF-8 텍스트 파일만 읽을 수 있습니다: {path}"
+        ) from exc
+    except PermissionError as exc:
+        raise PermissionError(
+            f"파일을 읽을 권한이 없습니다: {path}"
+        ) from exc
+
+    result: dict[str, Any] = {
+        "path": _relative_path(root, target),
+        "content": "".join(content_parts),
+        "start_line": start_line,
+        "end_line": returned_end_line,
+        "file_size": file_size,
+        "truncated": truncated,
+    }
+
+    if truncated:
+        result["next_start_line"] = next_start_line
+
+    return result
+
+
 def get_project_tree(
     workspace_root: str,
     path: str = ".",
