@@ -1,4 +1,5 @@
 # 보안상 agent가 아닌 harness가 workspace_root를 제공함
+import os
 from pathlib import Path
 from typing import Any
 
@@ -606,6 +607,264 @@ def read_file(
         result["next_start_line"] = next_start_line
 
     return result
+
+
+def search_code(
+    workspace_root: str,
+    query: str,
+    path: str = ".",
+    file_pattern: str | None = None,
+    max_results: int = 100,
+) -> dict[str, Any]:
+    """
+    workspace 내부의 UTF-8 텍스트 파일에서 문자열을 재귀 검색한다.
+
+    대소문자를 구분하지 않는 단순 문자열 검색만 수행한다. 매치된 파일
+    전체가 아닌 workspace 상대 경로, 줄 번호, 해당 줄만 반환한다.
+
+    Args:
+        workspace_root:
+            검색을 허용할 작업공간 루트 경로.
+
+            예:
+                "/workspace/project"
+
+        query:
+            각 줄에서 찾을 문자열. 대소문자는 구분하지 않는다.
+            빈 문자열은 허용하지 않는다.
+
+            예:
+                "validate_token"
+                "class UserService"
+
+        path:
+            재귀 검색을 시작할 workspace_root 기준 디렉토리 경로.
+            기본값 "."은 workspace 전체를 의미한다.
+
+            예:
+                "."
+                "src/services"
+
+        file_pattern:
+            검색할 파일 경로에 적용할 선택적 glob 패턴.
+            생략하면 지원되는 모든 텍스트 파일을 검색한다.
+
+            예:
+                "*.py"
+                "*.yaml"
+                "src/**/*.py"
+
+        max_results:
+            반환할 최대 매치 줄 수. 기본값은 100이다.
+            이 값을 넘는 첫 매치를 확인하면 탐색을 중단한다.
+
+            예:
+                50
+
+    Returns:
+        다음 형식의 dictionary를 반환한다.
+
+        {
+            "query": "validate_token",
+            "results": [
+                {
+                    "path": "src/auth_service.py",
+                    "line": 87,
+                    "content": "def validate_token(token):"
+                }
+            ],
+            "truncated": False
+        }
+
+        한 줄에 query가 여러 번 있어도 결과는 해당 줄 하나만 반환한다.
+        content에서는 줄 끝 개행 문자만 제거한다.
+
+    Raises:
+        FileNotFoundError:
+            workspace_root 또는 path가 존재하지 않을 때 발생한다.
+
+        NotADirectoryError:
+            workspace_root 또는 path가 디렉토리가 아닐 때 발생한다.
+
+        PermissionError:
+            workspace 밖에 접근하거나 검색 경로를 읽을 권한이 없을 때
+            발생한다.
+
+        ValueError:
+            query나 file_pattern이 비었거나 max_results가 1보다 작을 때
+            발생한다.
+
+    Agent 사용 지침:
+        - 함수명, 설정 키, 오류 문구 등 정확한 문자열을 찾을 때 사용해라.
+        - 결과가 많으면 file_pattern이나 path로 범위를 좁혀라.
+        - 실제 구현 문맥이 더 필요하면 결과의 path와 line으로 read_file을
+          호출해라.
+    """
+    if not query:
+        raise ValueError(
+            "query는 비어 있을 수 없습니다."
+        )
+
+    if file_pattern is not None and not file_pattern:
+        raise ValueError(
+            "file_pattern은 비어 있을 수 없습니다."
+        )
+
+    if max_results < 1:
+        raise ValueError(
+            "max_results는 1 이상이어야 합니다."
+        )
+
+    root, target = _resolve_path(
+        workspace_root=workspace_root,
+        path=path,
+    )
+
+    if not target.is_dir():
+        raise NotADirectoryError(
+            f"검색 시작 경로가 디렉토리가 아닙니다: {path}"
+        )
+
+    normalized_query = query.casefold()
+    results: list[dict[str, Any]] = []
+    truncated = False
+
+    def handle_walk_error(error: OSError) -> None:
+        raise PermissionError(
+            f"검색 경로를 읽을 권한이 없습니다: {path}"
+        ) from error
+
+    for current_path, directory_names, file_names in os.walk(
+        target,
+        topdown=True,
+        onerror=handle_walk_error,
+        followlinks=False,
+    ):
+        current = Path(current_path)
+        allowed_directories: list[str] = []
+
+        for directory_name in sorted(
+            directory_names,
+            key=str.casefold,
+        ):
+            directory = current / directory_name
+
+            if directory.is_symlink():
+                continue
+
+            if _should_ignore(
+                directory,
+                include_hidden=False,
+            ):
+                continue
+
+            allowed_directories.append(directory_name)
+
+        directory_names[:] = allowed_directories
+
+        for file_name in sorted(
+            file_names,
+            key=str.casefold,
+        ):
+            file_path = current / file_name
+
+            if file_path.is_symlink():
+                continue
+
+            if _should_ignore(
+                file_path,
+                include_hidden=False,
+            ):
+                continue
+
+            if not file_path.is_file():
+                continue
+
+            relative_path = _relative_path(
+                root,
+                file_path,
+            )
+
+            if (
+                file_pattern is not None
+                and not Path(relative_path).match(
+                    file_pattern
+                )
+            ):
+                continue
+
+            if file_path.suffix.lower() == ".ipynb":
+                continue
+
+            remaining_results = (
+                max_results - len(results)
+            )
+            file_results: list[dict[str, Any]] = []
+            file_has_extra_match = False
+            excluded_file = False
+
+            try:
+                with file_path.open(mode="rb") as file:
+                    for line_number, raw_line in enumerate(
+                        file,
+                        start=1,
+                    ):
+                        line = raw_line.decode(
+                            "utf-8",
+                            errors="strict",
+                        )
+
+                        if any(
+                            (
+                                ord(character) < 32
+                                and character not in "\t\n\r\f"
+                            )
+                            or ord(character) == 127
+                            for character in line
+                        ):
+                            excluded_file = True
+                            break
+
+                        if normalized_query not in line.casefold():
+                            continue
+
+                        if len(file_results) < remaining_results:
+                            file_results.append(
+                                {
+                                    "path": relative_path,
+                                    "line": line_number,
+                                    "content": line.rstrip(
+                                        "\r\n"
+                                    ),
+                                }
+                            )
+                        else:
+                            file_has_extra_match = True
+            except UnicodeDecodeError:
+                excluded_file = True
+            except PermissionError as exc:
+                raise PermissionError(
+                    "파일을 읽을 권한이 없습니다: "
+                    f"{relative_path}"
+                ) from exc
+
+            if excluded_file:
+                continue
+
+            results.extend(file_results)
+
+            if file_has_extra_match:
+                truncated = True
+                break
+
+        if truncated:
+            break
+
+    return {
+        "query": query,
+        "results": results,
+        "truncated": truncated,
+    }
 
 
 def get_project_tree(
