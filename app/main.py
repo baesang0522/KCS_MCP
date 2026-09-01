@@ -41,6 +41,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.modules.code_setup.investigation_service import (
     list_files,
     read_file,
+    search_code,
     get_project_tree,
 )
 from app.modules.data_analysis.analysis_service import (
@@ -134,6 +135,7 @@ mcp = MCPServer(
 # ---------------------------------------------------------
 mcp.tool()(list_files)
 mcp.tool()(read_file)
+mcp.tool()(search_code)
 mcp.tool()(get_project_tree)
 
 # ---------------------------------------------------------

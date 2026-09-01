@@ -18,12 +18,21 @@ MCP_URL = "http://localhost:8443/mcp"
 
 # ------------------------------------------------------------
 # 실제 환경에서는 Jupyter/Agent Harness가 결정할 값
-# 지금 테스트에서는 KCS_MCP 프로젝트를 workspace로 사용
+# 현재 테스트에서는 KCS_MCP 프로젝트를 workspace로 사용
 # ------------------------------------------------------------
 
 WORKSPACE_ROOT = str(
     Path(__file__).resolve().parents[1]
 )
+
+
+# workspace_root를 Harness가 자동으로 주입할 Tool
+WORKSPACE_TOOLS = {
+    "list_files",
+    "read_file",
+    "search_code",
+    "get_project_tree",
+}
 
 
 llm = OpenAI(
@@ -32,28 +41,72 @@ llm = OpenAI(
 )
 
 
+SYSTEM_PROMPT = """
+당신은 코드 분석 Agent입니다.
+
+프로젝트의 실제 상태를 확인해야 하는 요청에서는 추측하지 말고
+반드시 제공된 Tool을 사용하여 확인하세요.
+
+중요 규칙:
+- 제공된 Tool 이름만 호출하세요.
+- 존재하지 않는 Tool 이름을 임의로 만들지 마세요.
+- inspect, browse, explore 같은 Tool을 임의로 생성하지 마세요.
+- 사용자에게 파일이나 코드를 보여달라고 요청하기 전에
+  먼저 사용할 수 있는 Tool로 직접 조사하세요.
+- 과거 대화에서 프로젝트를 확인했더라도 사용자가 다시 확인하라고 하면
+  현재 Tool을 사용하여 다시 확인하세요.
+- 파일명이나 디렉토리명만 보고 코드 동작을 확정하지 마세요.
+
+파일 탐색 Tool 사용 기준:
+- get_project_tree:
+  처음 보는 프로젝트의 전체 구조를 확인할 때 사용합니다.
+- list_files:
+  특정 디렉토리 바로 아래의 파일을 확인할 때 사용합니다.
+- search_code:
+  함수명, 클래스명, 문자열 등 실제 구현 위치를 찾을 때 사용합니다.
+- read_file:
+  확인된 파일의 실제 코드 내용을 읽을 때 사용합니다.
+
+예:
+사용자가 "프로젝트 구조를 파악해줘"라고 하면
+get_project_tree 사용을 우선 고려하세요.
+
+사용자가 "디렉토리 트리 만드는 코드를 수정하고 싶다"고 하면
+search_code로 get_project_tree 구현 위치를 찾고,
+필요하면 read_file로 실제 구현 내용을 확인하세요.
+
+한국어로 답변하세요.
+""".strip()
+
+
 def convert_mcp_tools_for_agent(
     mcp_tools,
 ) -> list[dict[str, Any]]:
     """
-    MCP Tool schema를 Agent에게 전달할 schema로 변환한다.
+    MCP Tool schema를 LLM에게 전달할 OpenAI Tool schema로 변환합니다.
 
-    workspace_root는 Harness가 관리하는 값이므로
-    LLM에게 노출하지 않는다.
+    workspace_root는 Agent가 결정하는 값이 아니라 Harness가 관리하는
+    실행 컨텍스트이므로 LLM에게 노출하지 않습니다.
+
+    Args:
+        mcp_tools:
+            MCP 서버에서 조회한 Tool 목록입니다.
+
+    Returns:
+        OpenAI-compatible function calling 형식으로 변환한 Tool 목록입니다.
     """
-
     converted_tools = []
 
     for tool in mcp_tools:
-
-        schema = copy.deepcopy(tool.input_schema)
+        schema = copy.deepcopy(
+            tool.input_schema
+        )
 
         properties = schema.get(
             "properties",
             {},
         )
 
-        # workspace_root를 LLM schema에서 제거
         properties.pop(
             "workspace_root",
             None,
@@ -87,13 +140,21 @@ def convert_mcp_tools_for_agent(
 
 
 def result_to_text(result) -> str:
+    """
+    MCP Tool 실행 결과를 LLM에 전달할 문자열로 변환합니다.
+
+    Args:
+        result:
+            MCP ClientSession.call_tool 결과입니다.
+
+    Returns:
+        Tool 결과 content를 하나의 문자열로 변환하여 반환합니다.
+    """
     texts = []
 
     for content in result.content:
-
         if hasattr(content, "text"):
             texts.append(content.text)
-
         else:
             texts.append(str(content))
 
@@ -101,7 +162,6 @@ def result_to_text(result) -> str:
 
 
 async def main():
-
     print("=" * 60)
     print("KCS MCP Agent Test")
     print("=" * 60)
@@ -142,7 +202,7 @@ async def main():
                 print(f" - {tool.name}")
 
             # ------------------------------------------------
-            # Agent에게는 workspace_root 제거
+            # Agent용 Tool schema 생성
             # ------------------------------------------------
 
             agent_tools = (
@@ -151,29 +211,35 @@ async def main():
                 )
             )
 
+            valid_tool_names = {
+                tool["function"]["name"]
+                for tool in agent_tools
+            }
+
             print(
                 "\n[Harness] "
                 "workspace_root를 "
                 "Agent Tool schema에서 제거"
             )
 
+            print(
+                "\n[Tools → LLM]"
+            )
+
+            for tool in agent_tools:
+                print(
+                    f" - "
+                    f"{tool['function']['name']}"
+                )
+
             messages = [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a coding agent. "
-                        "Use the provided tools to inspect "
-                        "the user's project when necessary. "
-                        "Do not guess the project structure. "
-                        "Use tools when you need information "
-                        "about files or directories. "
-                        "Answer in Korean."
-                    ),
+                    "content": SYSTEM_PROMPT,
                 }
             ]
 
             while True:
-
                 user_input = input(
                     "\nYou > "
                 ).strip()
@@ -184,6 +250,9 @@ async def main():
                     "/bye",
                 }:
                     break
+
+                if not user_input:
+                    continue
 
                 messages.append(
                     {
@@ -196,7 +265,22 @@ async def main():
                 # Agent loop
                 # --------------------------------------------
 
+                tool_loop_count = 0
+                max_tool_loops = 20
+
                 while True:
+                    tool_loop_count += 1
+
+                    if (
+                        tool_loop_count
+                        > max_tool_loops
+                    ):
+                        print(
+                            "\n[Harness] "
+                            "Tool 호출 횟수 제한에 "
+                            "도달했습니다."
+                        )
+                        break
 
                     response = (
                         llm.chat.completions.create(
@@ -218,10 +302,9 @@ async def main():
                     # ----------------------------------------
 
                     if not message.tool_calls:
-
                         print(
                             f"\nGemma > "
-                            f"{message.content}"
+                            f"{message.content or ''}"
                         )
 
                         messages.append(
@@ -235,6 +318,8 @@ async def main():
 
                         break
 
+                    # assistant tool_call message를
+                    # history에 그대로 추가
                     messages.append(
                         message.model_dump(
                             exclude_none=True
@@ -248,18 +333,20 @@ async def main():
                     for tool_call in (
                         message.tool_calls
                     ):
-
                         tool_name = (
                             tool_call
                             .function
                             .name
                         )
 
-                        arguments = json.loads(
-                            tool_call
-                            .function
-                            .arguments
-                        )
+                        try:
+                            arguments = json.loads(
+                                tool_call
+                                .function
+                                .arguments
+                            )
+                        except json.JSONDecodeError:
+                            arguments = {}
 
                         print(
                             "\n[LLM → Harness]"
@@ -279,14 +366,58 @@ async def main():
                         )
 
                         # ====================================
-                        # ★ Harness가 workspace_root 삽입
+                        # 존재하지 않는 Tool 호출 차단
                         # ====================================
 
-                        mcp_arguments = {
-                            "workspace_root":
-                                WORKSPACE_ROOT,
-                            **arguments,
-                        }
+                        if (
+                            tool_name
+                            not in valid_tool_names
+                        ):
+                            error_message = (
+                                f"'{tool_name}'은 "
+                                "존재하지 않는 Tool입니다. "
+                                "사용 가능한 Tool: "
+                                f"{', '.join(sorted(valid_tool_names))}. "
+                                "사용자 요청을 다시 수행하고 "
+                                "적절한 Tool을 선택하세요."
+                            )
+
+                            print(
+                                "\n[Harness] "
+                                "Unknown Tool 차단"
+                            )
+
+                            print(error_message)
+
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id":
+                                        tool_call.id,
+                                    "content":
+                                        error_message,
+                                }
+                            )
+
+                            continue
+
+                        # ====================================
+                        # MCP 전달용 인자 생성
+                        # ====================================
+
+                        mcp_arguments = dict(
+                            arguments
+                        )
+
+                        # workspace 기반 Tool인 경우에만
+                        # Harness가 workspace_root를 강제 주입
+                        if (
+                            tool_name
+                            in WORKSPACE_TOOLS
+                        ):
+                            mcp_arguments[
+                                "workspace_root"
+                            ] = WORKSPACE_ROOT
 
                         print(
                             "\n[Harness → MCP]"
@@ -305,16 +436,27 @@ async def main():
                         # MCP 호출
                         # ------------------------------------
 
-                        result = (
-                            await session.call_tool(
-                                tool_name,
-                                arguments=mcp_arguments,
+                        try:
+                            result = (
+                                await session.call_tool(
+                                    tool_name,
+                                    arguments=mcp_arguments,
+                                )
                             )
-                        )
 
-                        result_text = (
-                            result_to_text(result)
-                        )
+                            result_text = (
+                                result_to_text(
+                                    result
+                                )
+                            )
+
+                        except Exception as exc:
+                            result_text = (
+                                "Tool 실행 중 오류가 "
+                                "발생했습니다: "
+                                f"{type(exc).__name__}: "
+                                f"{exc}"
+                            )
 
                         print(
                             "\n[MCP → Harness]"
