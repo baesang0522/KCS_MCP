@@ -1,0 +1,26 @@
+{
+  "name": "@kcs-mcp/jupyterlab-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@jupyterlab/application": "^4.0.0",
+    "@jupyterlab/nbformat": "^4.0.0",
+    "@jupyterlab/notebook": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "jupyterlab": {
+    "extension": true
+  }
+}

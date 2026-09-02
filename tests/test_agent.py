@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,10 @@ WORKSPACE_ROOT = str(
     Path(__file__).resolve().parents[1]
 )
 TASK_ID = uuid.uuid4().hex
+NOTEBOOK_PATH = os.environ.get(
+    "AGENT_NOTEBOOK_PATH",
+    "",
+)
 
 
 # workspace_root를 Harness가 자동으로 주입할 Tool
@@ -36,18 +41,27 @@ WORKSPACE_TOOLS = {
     "get_project_tree",
     "write_file",
     "apply_patch",
+    "write_jupyter_code_cell",
 }
 
 
 # task_id를 Harness가 자동으로 주입할 Tool
 TASK_TOOLS = {
     "apply_patch",
+    "write_jupyter_code_cell",
+}
+
+
+# notebook_path를 Harness가 자동으로 주입할 Tool
+NOTEBOOK_TOOLS = {
+    "write_jupyter_code_cell",
 }
 
 
 HARNESS_ARGUMENTS = {
     "workspace_root",
     "task_id",
+    "notebook_path",
 }
 
 
@@ -101,8 +115,8 @@ def convert_mcp_tools_for_agent(
     """
     MCP Tool schema를 LLM에게 전달할 OpenAI Tool schema로 변환합니다.
 
-    workspace_root와 task_id는 Agent가 결정하는 값이 아니라 Harness가
-    관리하는 실행 컨텍스트이므로 LLM에게 노출하지 않습니다.
+    workspace_root, task_id, notebook_path는 Agent가 결정하는 값이 아니라
+    Harness가 관리하는 실행 컨텍스트이므로 LLM에게 노출하지 않습니다.
 
     Args:
         mcp_tools:
@@ -235,7 +249,7 @@ async def main():
 
             print(
                 "\n[Harness] "
-                "workspace_root와 task_id를 "
+                "workspace_root, task_id, notebook_path를 "
                 "Agent Tool schema에서 제거"
             )
 
@@ -443,6 +457,14 @@ async def main():
                             mcp_arguments[
                                 "task_id"
                             ] = TASK_ID
+
+                        if (
+                            tool_name
+                            in NOTEBOOK_TOOLS
+                        ):
+                            mcp_arguments[
+                                "notebook_path"
+                            ] = NOTEBOOK_PATH
 
                         print(
                             "\n[Harness → MCP]"

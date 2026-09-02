@@ -48,6 +48,9 @@ from app.modules.code_edit.code_edit import (
     apply_patch,
     write_file,
 )
+from app.modules.code_edit.jupyter_code_edit import (
+    write_jupyter_code_cell,
+)
 from app.modules.data_analysis.analysis_service import (
     inspect_table,
     preview_rows,
@@ -147,6 +150,7 @@ mcp.tool()(get_project_tree)
 # ---------------------------------------------------------
 mcp.tool()(write_file)
 mcp.tool()(apply_patch)
+mcp.tool()(write_jupyter_code_cell)
 
 # ---------------------------------------------------------
 # 데이터 분석 Tool 등록
