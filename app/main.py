@@ -44,6 +44,13 @@ from app.modules.code_setup.investigation_service import (
     search_code,
     get_project_tree,
 )
+from app.modules.code_edit.code_edit import (
+    apply_patch,
+    write_file,
+)
+from app.modules.code_edit.jupyter_code_edit import (
+    write_jupyter_code_cell,
+)
 from app.modules.data_analysis.analysis_service import (
     inspect_table,
     preview_rows,
@@ -137,6 +144,13 @@ mcp.tool()(list_files)
 mcp.tool()(read_file)
 mcp.tool()(search_code)
 mcp.tool()(get_project_tree)
+
+# ---------------------------------------------------------
+# 코드 수정 Tool 등록
+# ---------------------------------------------------------
+mcp.tool()(write_file)
+mcp.tool()(apply_patch)
+mcp.tool()(write_jupyter_code_cell)
 
 # ---------------------------------------------------------
 # 데이터 분석 Tool 등록
