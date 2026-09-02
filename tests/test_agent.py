@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ MCP_URL = "http://localhost:8443/mcp"
 WORKSPACE_ROOT = str(
     Path(__file__).resolve().parents[1]
 )
+TASK_ID = uuid.uuid4().hex
 
 
 # workspace_root를 Harness가 자동으로 주입할 Tool
@@ -32,6 +34,20 @@ WORKSPACE_TOOLS = {
     "read_file",
     "search_code",
     "get_project_tree",
+    "write_file",
+    "apply_patch",
+}
+
+
+# task_id를 Harness가 자동으로 주입할 Tool
+TASK_TOOLS = {
+    "apply_patch",
+}
+
+
+HARNESS_ARGUMENTS = {
+    "workspace_root",
+    "task_id",
 }
 
 
@@ -85,8 +101,8 @@ def convert_mcp_tools_for_agent(
     """
     MCP Tool schema를 LLM에게 전달할 OpenAI Tool schema로 변환합니다.
 
-    workspace_root는 Agent가 결정하는 값이 아니라 Harness가 관리하는
-    실행 컨텍스트이므로 LLM에게 노출하지 않습니다.
+    workspace_root와 task_id는 Agent가 결정하는 값이 아니라 Harness가
+    관리하는 실행 컨텍스트이므로 LLM에게 노출하지 않습니다.
 
     Args:
         mcp_tools:
@@ -107,10 +123,11 @@ def convert_mcp_tools_for_agent(
             {},
         )
 
-        properties.pop(
-            "workspace_root",
-            None,
-        )
+        for argument_name in HARNESS_ARGUMENTS:
+            properties.pop(
+                argument_name,
+                None,
+            )
 
         required = schema.get(
             "required",
@@ -120,7 +137,7 @@ def convert_mcp_tools_for_agent(
         schema["required"] = [
             item
             for item in required
-            if item != "workspace_root"
+            if item not in HARNESS_ARGUMENTS
         ]
 
         converted_tools.append(
@@ -218,7 +235,7 @@ async def main():
 
             print(
                 "\n[Harness] "
-                "workspace_root를 "
+                "workspace_root와 task_id를 "
                 "Agent Tool schema에서 제거"
             )
 
@@ -418,6 +435,14 @@ async def main():
                             mcp_arguments[
                                 "workspace_root"
                             ] = WORKSPACE_ROOT
+
+                        if (
+                            tool_name
+                            in TASK_TOOLS
+                        ):
+                            mcp_arguments[
+                                "task_id"
+                            ] = TASK_ID
 
                         print(
                             "\n[Harness → MCP]"
